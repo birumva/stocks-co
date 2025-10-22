@@ -65,7 +65,7 @@ def save_tracking_data(data):
     """Save current tracking data to JSON file"""
     try:
         with open(TRACKING_FILE, 'w') as f:
-            json.dump(data, indent=2, fp=f)
+            json.dump(data, f, indent=2)
     except Exception as e:
         print(f"Error saving tracking data: {e}")
 
