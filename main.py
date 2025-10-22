@@ -166,6 +166,9 @@ def check_threshold_change(top_5_df):
     """
     Check if any ticker has increased by threshold amount since last check.
     Returns dict with tickers and their change deltas.
+    
+    Uses persistent tracking - tickers are never removed from tracking file,
+    ensuring accurate historical comparisons even when stocks drop out of top 5.
     """
     previous_data = load_tracking_data()
     
@@ -188,25 +191,31 @@ def check_threshold_change(top_5_df):
     
     # Check for threshold changes
     significant_tickers = {}
-    current_data = {}
+    
+    # Start with existing tracking data (PRESERVE ALL HISTORICAL DATA)
+    current_data = previous_data.copy()
     
     for idx, row in top_5_df.iterrows():
         ticker = row['Ticker']
         current_change = row['Change_Numeric']
-        current_data[ticker] = current_change
         
-        # If ticker wasn't tracked before
+        # If ticker wasn't tracked before (truly new, never seen)
         if ticker not in previous_data:
+            current_data[ticker] = current_change
             significant_tickers[ticker] = {
                 'delta': None,
                 'reason': 'NEW',
                 'previous': None,
                 'current': current_change
             }
-            print(f"🆕 {ticker} is new to top 5: {current_change:.2f}%")
+            print(f"🆕 {ticker} is new (never tracked before): {current_change:.2f}%")
         else:
             # Calculate the change difference
             change_difference = current_change - previous_data[ticker]
+            
+            # Update the tracked value
+            current_data[ticker] = current_change
+            
             if change_difference >= CHANGE_THRESHOLD:
                 significant_tickers[ticker] = {
                     'delta': change_difference,
@@ -215,8 +224,10 @@ def check_threshold_change(top_5_df):
                     'current': current_change
                 }
                 print(f"🔔 {ticker} change increased by {change_difference:.2f}% (threshold: {CHANGE_THRESHOLD}%)")
+            else:
+                print(f"📊 {ticker}: {previous_data[ticker]:.2f}% → {current_change:.2f}% (Δ{change_difference:+.2f}%) - No alert")
     
-    # Update tracking data
+    # Save tracking data (includes both current top 5 AND historical data)
     save_tracking_data(current_data)
     
     return significant_tickers

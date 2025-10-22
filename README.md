@@ -200,12 +200,101 @@ Minute 3: ACRS at 13.8% → Notification (+3.8% from 10.0%)
 Minute 4: ACRS at 14.0% → Silent (only +0.2% from 13.8%)
 ```
 
-### Data Persistence
+## 🔧 Recent Improvements & Bug Fixes
+
+### Version 1.1 - Persistent Tracking Implementation
+
+#### Problem Solved
+The original implementation had a critical tracking bug that caused:
+- ❌ Stocks repeatedly marked as "NEW" even when already tracked
+- ❌ False alerts when stocks temporarily dropped out of top 5 and returned
+- ❌ "Previous: Not tracked" showing for previously tracked stocks
+- ❌ Notifications sent even when percentage decreased
+- ❌ Historical tracking data lost on each check
+
+#### Root Cause
+1. **JSON save bug**: `json.dump()` parameters in wrong order (`json.dump(data, indent=2, fp=f)` instead of `json.dump(data, f, indent=2)`)
+2. **Tracking reset bug**: Tracking file completely overwritten on each check, losing historical data
+
+#### Solution Implemented
+1. **Fixed `json.dump()` syntax** - Tracking data now saves correctly
+2. **Persistent tracking** - Historical data preserved forever (never removed)
+3. **Added debug logging** - Shows all comparisons: `"TICKER: X% → Y% (ΔZ%) - No alert"`
+
+#### Before vs After
+
+**Before (Buggy):**
+```
+Check 1: WHWK at 6.08% → 🆕 NEW entry notification
+Check 2: WHWK at 6.31% → 🆕 NEW entry notification (WRONG!)
+Check 3: TERN at 6.09% → 🆕 NEW entry notification  
+Check 4: TERN at 6.22% → 🆕 NEW entry notification (WRONG!)
+```
+
+**After (Fixed):**
+```
+Check 1: WHWK at 6.08% → 🆕 NEW entry notification
+Check 2: WHWK at 6.31% → No alert (Δ+0.23%, below 3% threshold)
+Check 3: TERN at 6.09% → 🆕 NEW entry notification
+Check 4: TERN at 6.22% → No alert (Δ+0.13%, below 3% threshold)
+Check 5: WHWK at 9.10% → 🔔 THRESHOLD alert! (Δ+3.02% from 6.08%)
+         Display: "Previous: 6.08% → Current: 9.10%"
+```
+
+### Data Persistence & Tracking Logic
+
+#### Persistent Tracking System
+
+The bot uses a **persistent tracking approach** that ensures accurate change detection:
 
 - **Tracking File**: `ticker_tracking.json` (auto-created)
-- **Stored Data**: Ticker symbol → Last notified change %
-- **Update Frequency**: Every check cycle
+- **Stored Data**: Ticker symbol → Last tracked change %
+- **Update Strategy**: **Never removes tickers** - once tracked, always tracked
+- **Update Frequency**: Every check cycle (updates existing + adds new)
 - **Reset**: Use `!reset` command to start fresh
+
+#### How Persistent Tracking Works
+
+**Key Innovation**: The tracking file preserves historical data for ALL tickers that have ever been in the top 5, even after they drop out.
+
+**Example Flow:**
+```
+Check 1: Top 5 = [IOBT, SABR, UUUU, WHWK, TERN]
+Tracking: {IOBT: 19.63, SABR: 18.98, UUUU: 12.53, WHWK: 7.66, TERN: 6.85}
+
+Check 2: Top 5 = [IOBT, SABR, UUUU, GPRO, TERN]  ← WHWK dropped, GPRO new
+Tracking: {IOBT: 20.00, SABR: 19.50, UUUU: 13.00, WHWK: 7.66, GPRO: 5.50, TERN: 7.00}
+          ↑ WHWK still preserved even though not in current top 5!
+
+Check 3: Top 5 = [IOBT, SABR, WHWK, GPRO, TERN]  ← WHWK returns
+Compare: WHWK 7.66% → 10.70% = +3.04% increase
+Result: ✅ Threshold alert sent (NOT marked as "NEW")
+Display: "Previous: 7.66% → Current: 10.70%"
+```
+
+**Why This Matters:**
+- ✅ **Accurate comparisons** when stocks re-enter top 5
+- ✅ **No false "NEW" alerts** for stocks that temporarily drop out
+- ✅ **Reliable threshold detection** based on true historical values
+- ✅ **Growing knowledge base** of all significant movers
+
+**Traditional Approach (BAD):**
+```python
+# Overwrites entire tracking file each time
+current_data = {}  # Empty - loses history
+for ticker in top_5:
+    current_data[ticker] = value
+save(current_data)  # Only saves current top 5
+```
+
+**Persistent Approach (GOOD):**
+```python
+# Preserves all historical data
+current_data = load_tracking_data()  # Load existing
+for ticker in top_5:
+    current_data[ticker] = value  # Add/update
+save(current_data)  # Saves current + historical
+```
 
 ## 📊 Data Sources
 
@@ -453,12 +542,15 @@ CHANNEL_ID=1234567890123456789
 
 #### Auto-Generated Files
 
-**`ticker_tracking.json`**
+**`ticker_tracking.json`** (Persistent Tracking)
 - Created on first run
 - Stores last known change % for each ticker
-- Updated every check cycle
-- Format: `{"ACRS": 12.02, "AAOI": 8.35, ...}`
-- Can be deleted with `!reset` command
+- **Never removes tickers** - preserves historical data
+- Updated every check cycle (adds new + updates existing)
+- Grows over time as more tickers enter top 5
+- Format: `{"ACRS": 12.02, "AAOI": 8.35, "WHWK": 7.66, ...}`
+- Can be deleted with `!reset` command to start fresh
+- Example after 1 hour: May contain 10-15 tickers (current + historical)
 
 **`bot.log`** (Optional)
 - Created if logging is enabled
@@ -676,14 +768,20 @@ Control the bot your way:
 - **Type Handling**: Robust parsing of percentage strings
 - **Error Handling**: Graceful handling of NaN, missing data
 
-### Threshold Algorithm
+### Threshold Algorithm (Persistent Tracking)
 ```python
+# Load existing tracking data (preserves history)
+current_data = load_tracking_data()  # e.g., {IOBT: 19.63, WHWK: 7.66, ...}
+
 For each ticker in top 5:
     current_change = ticker.change_from_open
     
     If ticker not in tracking:
+        # Truly new - never seen before
         → Notify (NEW entry)
+        current_data[ticker] = current_change
     Else:
+        # Compare with historical value
         previous_change = tracking[ticker]
         delta = current_change - previous_change
         
@@ -691,9 +789,21 @@ For each ticker in top 5:
             → Notify (THRESHOLD met)
         Else:
             → Skip (below threshold)
-    
-    Update tracking[ticker] = current_change
+            → Log: "TICKER: X.XX% → Y.YY% (ΔZ.ZZ%) - No alert"
+        
+        # Always update the tracked value
+        current_data[ticker] = current_change
+
+# Save ALL data (current top 5 + historical tickers)
+# This preserves data for tickers that drop out
+save_tracking_data(current_data)
 ```
+
+**Key Difference from Traditional Approach:**
+- `current_data` starts with existing historical data (`.copy()`)
+- Only updates/adds values for current top 5
+- Never removes tickers from tracking
+- Result: Historical context preserved forever
 
 ### Discord Integration
 - **Library**: discord.py (async)
@@ -766,7 +876,7 @@ Potential features to consider:
 - **requests** - HTTP client for Finviz Elite API calls
 - **python-dotenv** - Environment variable management
 
-**Version**: 1.0.0 (October 2025)  
+**Version**: 1.1.0 (October 2025) - Persistent Tracking Update  
 **Python**: 3.7+  
 **License**: Use as needed for personal trading  
 **Disclaimer**: For educational and personal use. Not financial advice.
