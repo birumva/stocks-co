@@ -263,10 +263,10 @@ def get_ticker_news(ticker, count=3):
         return []
 
 
-def create_report_embed(top_5_df, significant_tickers):
+def create_report_embed(top_5_df, significant_tickers, title="Top 5 Daily Gainers - Live Data"):
     """Create a rich Discord embed with the top 5 tickers info"""
     embed = discord.Embed(
-        title="Top 5 Daily Gainers - Live Data",
+        title=title,
         description=f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         color=discord.Color.gold() if significant_tickers else discord.Color.blue()
     )
@@ -445,20 +445,44 @@ async def send_top_tickers():
                 print(f"[{datetime.now()}] No significant increases (threshold: +{CHANGE_THRESHOLD}%)")
                 return
             
-            # Always get top 5 daily gainers for context
-            top_5_df = all_tickers.nlargest(5, 'Change_Numeric')
-            top_5_symbols = top_5_df['Ticker'].tolist()
+            # Get top 5 daily gainers
+            top_5_daily = all_tickers.nlargest(5, 'Change_Numeric')
+            top_5_daily_symbols = set(top_5_daily['Ticker'].tolist())
             
-            # Mark which of the top 5 are also momentum gainers (for highlighting)
-            top_5_significant = {k: v for k, v in significant_tickers.items() if k in top_5_symbols}
+            # Get top momentum gainers (sorted by current gain)
+            sorted_momentum = sorted(
+                significant_tickers.items(),
+                key=lambda x: x[1]['current_gain'],
+                reverse=True
+            )
+            momentum_symbols = set([ticker for ticker, _ in sorted_momentum])
             
-            print(f"Showing top 5 daily gainers ({len(top_5_significant)} with momentum alerts, {len(significant_tickers)} total met threshold)")
+            # Check if any momentum gainers are in top 5 daily
+            overlap = momentum_symbols & top_5_daily_symbols
             
-            # Create and send embed with top 5 daily gainers
-            embed = create_report_embed(top_5_df, top_5_significant)
+            if overlap:
+                # Show top 5 daily gainers (at least one has momentum alert)
+                display_df = top_5_daily
+                display_symbols = top_5_daily_symbols
+                embed_title = "Top 5 Daily Gainers - Live Data"
+                print(f"Showing top 5 daily gainers ({len(overlap)} with momentum alerts, {len(significant_tickers)} total met threshold)")
+            else:
+                # No overlap - show top momentum gainers instead for clarity
+                top_momentum_symbols = [ticker for ticker, _ in sorted_momentum[:5]]
+                display_df = all_tickers[all_tickers['Ticker'].isin(top_momentum_symbols)].copy()
+                display_df = display_df.sort_values('Change_Numeric', ascending=False)
+                display_symbols = set(top_momentum_symbols)
+                embed_title = "Top 5 Momentum Gainers - Live Data"
+                print(f"Showing top 5 momentum gainers (no overlap with daily top 5, {len(significant_tickers)} total met threshold)")
+            
+            # Mark which displayed tickers are momentum gainers
+            display_significant = {k: v for k, v in significant_tickers.items() if k in display_symbols}
+            
+            # Create and send embed
+            embed = create_report_embed(display_df, display_significant, title=embed_title)
             await channel.send(embed=embed)
             
-            print(f"[{datetime.now()}] Report sent! {len(top_5_significant)} momentum alert(s) in top 5 ({len(significant_tickers)} total met threshold).")
+            print(f"[{datetime.now()}] Report sent! {len(display_significant)} momentum alert(s) displayed ({len(significant_tickers)} total met threshold).")
         
         except Exception as e:
             print(f"Error in scheduled task: {e}")
