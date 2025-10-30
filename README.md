@@ -5,15 +5,17 @@ A sophisticated Discord bot that monitors top-performing stocks from Finviz Elit
 ## ✨ Features
 
 ✅ **Live Finviz Elite API Integration** - Fetches real-time data directly from your Finviz Elite account (no CSV delays)  
-✅ **Smart Threshold Notifications** - Only sends alerts when a stock's change increases by +3% or more (prevents spam)  
-✅ **Delta Display** - Shows exact increase amount: "ACRS increased by +3.5% from last check"  
-✅ **Before/After Tracking** - Visual comparison: "Previous: 12.02% → Current: 15.52%"  
-✅ **Comprehensive Performance Metrics** - Price, Monthly Performance, YTD Performance, and more  
-✅ **Top 3 Latest News** - Full summaries from YahooNews.csv with links for each ticker  
-✅ **Intelligent Change Tracking** - Persistent tracking to detect significant movements over time  
-✅ **Earnings Date Display** - Shows upcoming earnings dates for planning  
+✅ **Full Spectrum Momentum Tracking** - Monitors ALL 568+ stocks for +3% momentum gains  
+✅ **Smart Context Display** - Shows top 5 daily gainers with momentum alerts highlighted  
+✅ **Delta Display** - Shows exact increase amount: "Increased by +3.5% from last check"  
+✅ **Before/After Tracking** - Visual comparison: "Previous: 12.02%"  
+✅ **Comprehensive Performance Metrics** - Price, YTD Performance, Earnings Date  
+✅ **Latest News Integration** - Clickable news titles with publication dates from YahooNews.csv  
+✅ **Persistent Tracking** - Tracks all stocks silently for historical comparisons  
+✅ **Finviz Chart Links** - Direct links to Finviz Elite chart view for each ticker  
 ✅ **Discord Commands** - Manual triggers and control commands for testing and management  
 ✅ **Error Handling** - Gracefully handles missing data, API errors, and network issues  
+✅ **Professional UI** - Clean, color-coded displays (green for gains, red for losses)  
 
 ## 📋 Requirements
 
@@ -101,7 +103,7 @@ python main.py
 CHANGE_THRESHOLD = 3.0  # Notify only if change increased by 3% or more
 
 # Update interval (in minutes)
-UPDATE_INTERVAL_MINUTES = 1  # Testing: 1, Production: 2
+UPDATE_INTERVAL_MINUTES = 2  # Checks every 2 minutes for momentum gains
 
 # News items per ticker
 count=3  # Shows top 3 latest news items (in get_ticker_news function)
@@ -134,73 +136,177 @@ Choose your threshold based on market volatility and trading strategy:
 
 ### Monitoring Flow
 
-**Every 1 minute** (configurable), the bot executes this sequence:
+**Every 2 minutes** (configurable), the bot executes this sequence:
 
 1. **Fetches Live Data** from Finviz Elite API
+   - Retrieves ALL 568+ stocks from your Finviz screener
    - Uses your exact screener filters and columns
-   - Retrieves comprehensive stock data
    - No rate limits (Elite allows unlimited requests)
 
-2. **Identifies Top 5 Performers** by "Change from Open"
-   - Parses percentage values accurately
-   - Sorts by highest gainers
-   - Handles edge cases (NaN, missing data)
+2. **Tracks ALL Stocks for Momentum Changes**
+   - Compares current percentage with last tracked value
+   - Identifies stocks that gained +3% or more since last check
+   - Maintains persistent tracking for ALL stocks (silent tracking)
 
-3. **Compares with Previous Values**
-   - Loads tracking data from `ticker_tracking.json`
-   - Calculates exact delta for each ticker
-   - Determines if threshold is met
+3. **Identifies Top 5 Daily Gainers for Context**
+   - Sorts all stocks by "Change from Open" (descending)
+   - Selects top 5 current performers
+   - Highlights which ones also met the momentum threshold
 
 4. **Sends Smart Notifications**
-   - **Only notifies** if a ticker increased by +3% or more
-   - Shows exact increase amount in alert
-   - Displays before/after comparison
-   - Includes performance metrics and news
+   - **Only sends** when momentum gainers are detected
+   - Displays top 5 daily gainers for full market context
+   - Uses ▲ icon for momentum alerts, • for others
+   - Shows exact increase amount: "Increased by +3.5% from last check"
+   - Includes performance metrics and latest news
 
 ### Notification Display
 
-**For each qualifying ticker**, the bot shows:
+**For each ticker in the top 5**, the bot shows:
 
-#### 🔔 Threshold Alert Section
-- **Exact increase**: "+3.5% from last check"
-- **Before/After**: "Previous: 12.02% → Current: 15.52%"
-- **Reason**: NEW entry, THRESHOLD met, or manual trigger
+#### Ticker Header
+- **Rank & Status**: ▲ for momentum alerts, • for context
+- **Ticker Symbol**: With current price
+- **Current Percentage**: Shows gain/loss from open (+25.3%)
+- **Finviz Chart Link**: Clickable link to chart view
 
-#### 📊 Performance Metrics
-- Current price with ticker symbol
-- Change from open percentage
-- Monthly performance
-- Year-to-date (YTD) performance
-- Earnings date and time
+#### Context Section (Color-Coded)
+- **Green**: Increased by +X% from last check
+- **Red**: Decreased by X% from last check
+- **Explanation**: Shows why it's in the list (momentum alert or top daily gainer)
 
-#### 📰 Latest News (Top 3)
-- News title (truncated to 100 chars)
-- Full summary (truncated to 250 chars)
-- Source and publication date
-- Direct link to read more
+#### Performance Metrics
+- **Previous**: Last tracked percentage value
+- **YTD**: Year-to-date performance
+- **Earnings**: Upcoming earnings date
 
-### Smart Threshold Logic
+#### Latest News (Top 3)
+- **Clickable Title**: Direct link to news article
+- **Publication Date**: From rssPublished field
+- **"Read More"**: Formatted with timestamp
 
-The bot prevents notification spam with intelligent tracking:
+### Smart Momentum Logic
+
+The bot tracks ALL stocks and alerts on momentum, not just position:
 
 | Scenario | Bot Action | Example |
 |----------|------------|---------|
-| **First Run** | Notifies all top 5 | Initial baseline established |
-| **No Change** | Silent check | ACRS: 10% → 10.5% (only +0.5%) |
-| **Threshold Met** | 🔔 Notification | ACRS: 10% → 13.5% (+3.5%) |
-| **New to Top 5** | 🔔 Notification | ABCL enters top 5 at 12% |
-| **Below Threshold** | Silent check | Multiple small increases |
+| **First Run** | Silent tracking | Establishes baseline for all 568+ stocks |
+| **Momentum Gain** | 🔔 Notification | ACRS: 10% → 13.5% (+3.5% gain) |
+| **Below Threshold** | Silent check | ACRS: 10% → 10.5% (only +0.5%) |
+| **Decrease** | Silent tracking | ACRS: 10% → 9.0% (tracked, no alert) |
+| **New Stock** | Silent tracking | First time seen, track silently |
 
 **Example Timeline:**
 ```
-Minute 0: ACRS at 10.0% → Notification (first run)
-Minute 1: ACRS at 10.5% → Silent (only +0.5%)
-Minute 2: ACRS at 11.2% → Silent (only +1.2% from last)
-Minute 3: ACRS at 13.8% → Notification (+3.8% from 10.0%)
-Minute 4: ACRS at 14.0% → Silent (only +0.2% from 13.8%)
+Minute 0: 568 stocks tracked → Silent (first run, baseline)
+Minute 2: ACRS 10.0% → 10.5% → Silent (only +0.5%)
+Minute 4: ABCD 5.0% → 8.2% → ▲ Notification (+3.2% momentum!)
+Minute 6: ACRS 10.5% → 13.8% → ▲ Notification (+3.3% momentum!)
+Minute 8: EFGH 15.0% → 14.5% → Silent (decrease tracked, no alert)
+
+Notification shows: Top 5 daily gainers, with ▲ for ACRS & ABCD
 ```
 
 ## 🔧 Recent Improvements & Bug Fixes
+
+### Version 2.0 - Full Spectrum Momentum Tracking (October 2025)
+
+#### Major Overhaul: From Top 5 Tracking to Full Portfolio Monitoring
+
+**What Changed:**
+- **Before**: Only tracked the top 5 daily gainers for threshold changes
+- **After**: Monitors ALL 568+ stocks from Finviz screener for momentum gains
+
+#### Key Improvements
+
+**1. Universal Momentum Detection**
+- Tracks every stock in your Finviz screener (not just top 5)
+- Detects +3% momentum gains across entire portfolio
+- Never misses a momentum move, even in stocks outside top 5
+
+**2. Smart Context Display**
+- Shows top 5 daily gainers when momentum alerts trigger
+- Highlights which stocks have momentum (▲) vs. context (•)
+- Provides full market picture while focusing on alerts
+
+**3. Simplified News Display**
+- New CSV format: `symbol,"title","link","body","rssPublished"`
+- Title is now a clickable link (cleaner presentation)
+- Shows publication date only (removed redundant summary)
+
+**4. Enhanced Tracking Logic**
+- **New stocks**: Tracked silently (no alert on first appearance)
+- **Increases +3%**: Momentum alert triggered
+- **Decreases**: Tracked silently (no negative alerts)
+- **All changes**: Maintained in persistent tracking
+
+**5. UI/UX Improvements**
+- Reduced emoji usage for professional appearance
+- Color-coded changes (green for gains, red for losses)
+- Direct Finviz chart links (added `&p=d` parameter)
+- Consistent percentage format with + signs
+- Improved spacing and readability
+- Separated tickers with visual hierarchy
+
+**6. Performance Updates**
+- Update interval: 2 minutes (was 1 minute)
+- Removed redundant HOT_THRESHOLD
+- Optimized tracking file management
+
+#### Problem Solved
+
+**Previous Limitation:**
+```
+Check 1: Top 5 = [A, B, C, D, E]
+Check 2: Top 5 = [A, B, C, D, E]
+Stock F gains +5% (now at rank #8) → ❌ MISSED! Not in top 5
+```
+
+**New Approach:**
+```
+Check 1: Track all 568 stocks
+Check 2: Monitor all 568 stocks
+Stock F gains +5% → ✅ DETECTED! Momentum alert triggered
+Display: Top 5 daily context + Stock F highlighted if in top 5
+```
+
+#### Before vs After Display
+
+**Before (v1.1):**
+```
+Title: "Top 5 Momentum Gainers - Live Data"
+- Only shows stocks that met threshold
+- Could display 1-2 tickers if only those gained +3%
+- No context for other top performers
+```
+
+**After (v2.0):**
+```
+Title: "Top 5 Daily Gainers - Live Data"
+▲ #1 - ACRS - $12.50 (+25.3%)   [Momentum alert: +3.2%]
+▲ #2 - ABCD - $8.75 (+18.2%)    [Momentum alert: +4.1%]
+• #3 - EFGH - $5.30 (+16.5%)    [Top gainer, increased +0.8%]
+• #4 - LUNG - $3.45 (+14.2%)    [Top gainer, decreased -0.3%]
+• #5 - VTYX - $2.75 (+12.8%)    [Top gainer, increased +0.5%]
+```
+
+#### Console Output Example
+
+**Old:**
+```
+[2025-10-30 10:00] Report sent! 2 ticker(s) met threshold
+```
+
+**New:**
+```
+Tracking 568 stocks for momentum changes...
+✓ ACRS increased by +3.20% (threshold: 3.0%)
+✓ ABCD increased by +4.10% (threshold: 3.0%)
+Found 2 stocks with +3.0% momentum gain
+Showing top 5 daily gainers (2 with momentum alerts, 2 total met threshold)
+[2025-10-30 10:00] Report sent! 2 momentum alert(s) in top 5 (2 total met threshold).
+```
 
 ### Version 1.1 - Persistent Tracking Implementation
 
@@ -316,75 +422,83 @@ This means:
 
 ## 📝 Example Output
 
-### Threshold Alert (Stock Increased by 3%+)
+### Momentum Alert Notification
 
 ```
-📈 Top Performers - Live from Finviz Elite
-🔔 2 ticker(s) met the +3.0% threshold
-Updated: 2025-10-22 04:30:15
+📊 Top 5 Daily Gainers - Live Data
+Updated: 2025-10-30 10:15:32
 
-🚀 #1 - ACRS - $2.35 (+3.5% increase)
+▲ #1 - ACRS - $12.50 (+25.3%)
 
-🔔 Threshold Alert:
-• Increased by +3.5% from last check
-• Previous: 12.02% → Current: 15.52%
+[View on Finviz](https://elite.finviz.com/quote.ashx?t=ACRS&p=d)
 
-📊 Performance:
-• Change from Open: 15.52%
-• Monthly: 21.50%
-• YTD: 39.58%
-• Earnings: 8/7/2025 8:30:00 AM
-
-📰 Latest News:
-
-1. ACRS Announces Positive Phase 2 Trial Results
-ACRS Corporation reported strong preliminary data from its Phase 2 clinical trial, 
-showing significant improvement in patient outcomes compared to placebo group. 
-The company expects to publish full results next quarter...
-Read More • 2025-10-22 03:45 UTC
-
-2. Healthcare Sector Rally Continues as Biotech Gains
-Multiple biotechnology stocks including ACRS saw substantial gains today as 
-investors responded positively to sector-wide developments...
-Read More • 2025-10-22 02:15 UTC
-
-3. Analyst Upgrades ACRS to Buy Rating
-Major investment firm upgraded ACRS from Hold to Buy with a price target...
-Read More • 2025-10-22 01:30 UTC
+Context:
+```ansi
+Increased by +3.20% from last check
 ```
 
-### New Entry Alert
+Performance:
+Previous: `22.10%`
+YTD: `39.58%`
+Earnings: 2025-11-15 Before Market Open
 
+Latest News:
+
+`1.` [ACRS Announces Phase 2 Trial Results](https://finance.yahoo.com/news/acrs-announces...)
+   Read More • 2025-10-30 08:45
+
+`2.` [Biotech Sector Sees Strong Gains](https://finance.yahoo.com/news/biotech-sector...)
+   Read More • 2025-10-30 07:22
+
+`3.` [Analyst Upgrades ACRS Rating](https://finance.yahoo.com/news/analyst-upgrades...)
+   Read More • 2025-10-30 06:15
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+• #2 - EFGH - $8.75 (+18.2%)
+
+[View on Finviz](https://elite.finviz.com/quote.ashx?t=EFGH&p=d)
+
+Context:
+```ansi
+Increased by +0.80% from last check
 ```
-🆕 #2 - ABCL - $5.62 (New to Top 5)
 
-🔔 Threshold Alert:
-• NEW entry to top 5
-• Previous: Not tracked → Current: -3.02%
+Performance:
+Previous: `17.40%`
+YTD: `52.31%`
+Earnings: 2025-12-05 After Market Close
 
-📊 Performance:
-• Change from Open: -3.02%
-• Monthly: 16.46%
-• YTD: 12.73%
-• Earnings: 11/6/2025 4:30:00 PM
-
-📰 Latest News:
+Latest News:
 ...
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Finviz Elite | Alert Threshold: +3.0%
 ```
 
-### Manual Trigger (!top5 command)
+### Manual Check (!top5 command)
 
 ```
-📊 #1 - ACRS - $2.35
+📊 Top 5 Daily Gainers - Live Data
+Updated: 2025-10-30 10:20:15
 
-📊 Performance:
-• Change from Open: 15.52%
-• Monthly: 21.50%
-• YTD: 39.58%
-• Earnings: 8/7/2025 8:30:00 AM
+• #1 - LUNG - $5.30 (+32.1%)
 
-📰 Latest News:
+[View on Finviz](https://elite.finviz.com/quote.ashx?t=LUNG&p=d)
+
+Context:
+Manual trigger (threshold bypassed)
+
+Performance:
+Previous: `31.50%`
+YTD: `125.43%`
+Earnings: 2025-11-20 Before Market Open
+
+Latest News:
 ...
+
+Finviz Elite | Alert Threshold: +3.0%
 ```
 
 ## 🛠️ Troubleshooting
@@ -493,14 +607,14 @@ If issues persist:
 
 ```
 DiscordBots/
-├── main.py                      # Main bot application (466 lines)
+├── percentage3cfo.py            # Main bot application (559 lines)
 ├── requirements.txt             # Python dependencies
 ├── README.md                    # This file - comprehensive documentation
 ├── .env                         # Environment variables (YOU CREATE THIS)
 ├── .gitignore                   # Git ignore file (recommended)
 │
-├── ticker_tracking.json         # Auto-generated tracking data
-├── YahooNews.csv               # News data source (127K+ lines)
+├── ticker_tracking.json         # Auto-generated tracking data (all 568+ stocks)
+├── YahooNews.csv               # News data source (symbol, title, link, body, rssPublished)
 ├── finviz_data.csv             # Optional: Local Finviz data cache
 │
 ├── fetch_finviz_data.sh        # Your existing data fetching script (reference only)
@@ -511,12 +625,14 @@ DiscordBots/
 
 #### Core Files (Required)
 
-**`main.py`** (466 lines)
+**`percentage3cfo.py`** (559 lines)
 - Main bot application with all logic
-- Fetches data from Finviz Elite API
+- Monitors ALL 568+ stocks for momentum gains
+- Fetches live data from Finviz Elite API every 2 minutes
+- Tracks all stocks persistently (silent tracking)
+- Displays top 5 daily gainers with momentum highlights
 - Manages Discord connection and commands
-- Handles threshold detection and notifications
-- Includes error handling and logging
+- Includes error handling and comprehensive logging
 
 **`requirements.txt`**
 ```
@@ -536,21 +652,22 @@ CHANNEL_ID=1234567890123456789
 ```
 
 **`YahooNews.csv`** (127,289+ lines)
-- News data source with columns: date, symbol, title, summary, source, link
+- News data source with columns: symbol, title, link, body, rssPublished
 - Updated by your data pipeline
-- Bot reads this for news display
+- Bot displays clickable news titles with publication dates
+- Format: `symbol,"title","link","body","rssPublished"`
 
 #### Auto-Generated Files
 
 **`ticker_tracking.json`** (Persistent Tracking)
 - Created on first run
-- Stores last known change % for each ticker
+- Stores last known change % for ALL stocks (568+ from Finviz screener)
 - **Never removes tickers** - preserves historical data
-- Updated every check cycle (adds new + updates existing)
-- Grows over time as more tickers enter top 5
+- Updated every 2-minute check cycle (adds new + updates existing)
+- Enables momentum detection by comparing current vs. previous values
 - Format: `{"ACRS": 12.02, "AAOI": 8.35, "WHWK": 7.66, ...}`
 - Can be deleted with `!reset` command to start fresh
-- Example after 1 hour: May contain 10-15 tickers (current + historical)
+- Typical size: 568+ tickers after first run, grows if screener expands
 
 **`bot.log`** (Optional)
 - Created if logging is enabled
@@ -876,7 +993,7 @@ Potential features to consider:
 - **requests** - HTTP client for Finviz Elite API calls
 - **python-dotenv** - Environment variable management
 
-**Version**: 1.1.0 (October 2025) - Persistent Tracking Update  
+**Version**: 2.0.0 (October 2025) - Full Spectrum Momentum Tracking  
 **Python**: 3.7+  
 **License**: Use as needed for personal trading  
 **Disclaimer**: For educational and personal use. Not financial advice.
