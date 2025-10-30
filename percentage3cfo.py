@@ -445,35 +445,36 @@ async def send_top_tickers():
                 print(f"[{datetime.now()}] No significant increases (threshold: +{CHANGE_THRESHOLD}%)")
                 return
             
-            # Get top 5 daily gainers
-            top_5_daily = all_tickers.nlargest(5, 'Change_Numeric')
-            top_5_daily_symbols = set(top_5_daily['Ticker'].tolist())
-            
             # Get top momentum gainers (sorted by current gain)
             sorted_momentum = sorted(
                 significant_tickers.items(),
                 key=lambda x: x[1]['current_gain'],
                 reverse=True
             )
-            momentum_symbols = set([ticker for ticker, _ in sorted_momentum])
             
-            # Check if any momentum gainers are in top 5 daily
-            overlap = momentum_symbols & top_5_daily_symbols
+            # Always prioritize showing momentum gainers (they triggered the alert!)
+            top_momentum_symbols = [ticker for ticker, _ in sorted_momentum[:5]]
             
-            if overlap:
-                # Show top 5 daily gainers (at least one has momentum alert)
-                display_df = top_5_daily
-                display_symbols = top_5_daily_symbols
-                embed_title = "Top 5 Daily Gainers - Live Data"
-                print(f"Showing top 5 daily gainers ({len(overlap)} with momentum alerts, {len(significant_tickers)} total met threshold)")
+            # Build display list: Start with momentum gainers
+            display_symbols = list(top_momentum_symbols)
+            
+            # If fewer than 5 momentum gainers, fill with top daily gainers for context
+            if len(display_symbols) < 5:
+                top_5_daily = all_tickers.nlargest(5, 'Change_Numeric')
+                for ticker in top_5_daily['Ticker'].tolist():
+                    if ticker not in display_symbols:
+                        display_symbols.append(ticker)
+                        if len(display_symbols) >= 5:
+                            break
+                embed_title = f"Top {len(top_momentum_symbols)} Momentum Gainer(s) + Context"
+                print(f"Showing {len(top_momentum_symbols)} momentum gainer(s) + {5-len(top_momentum_symbols)} top daily for context ({len(significant_tickers)} total met threshold)")
             else:
-                # No overlap - show top momentum gainers instead for clarity
-                top_momentum_symbols = [ticker for ticker, _ in sorted_momentum[:5]]
-                display_df = all_tickers[all_tickers['Ticker'].isin(top_momentum_symbols)].copy()
-                display_df = display_df.sort_values('Change_Numeric', ascending=False)
-                display_symbols = set(top_momentum_symbols)
                 embed_title = "Top 5 Momentum Gainers - Live Data"
-                print(f"Showing top 5 momentum gainers (no overlap with daily top 5, {len(significant_tickers)} total met threshold)")
+                print(f"Showing top 5 momentum gainers ({len(significant_tickers)} total met threshold)")
+            
+            # Get DataFrame for display tickers
+            display_df = all_tickers[all_tickers['Ticker'].isin(display_symbols)].copy()
+            display_df = display_df.sort_values('Change_Numeric', ascending=False)
             
             # Mark which displayed tickers are momentum gainers
             display_significant = {k: v for k, v in significant_tickers.items() if k in display_symbols}
