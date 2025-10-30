@@ -274,16 +274,22 @@ def create_report_embed(top_5_df, significant_tickers, title="Top 5 Daily Gainer
     # Load tracking data to show deltas for non-alert tickers
     tracking_data = load_tracking_data()
     
-    # Reorganize: Show alert tickers first, sorted by Change_Numeric (highest first)
-    # Then show non-alert tickers
+    # Check if we have momentum_delta column (from momentum-based display)
     top_5_copy = top_5_df.copy()
     top_5_copy['is_alert'] = top_5_copy['Ticker'].isin(significant_tickers)
     
-    # Sort by: 1) Alert status (alerts first), 2) Change_Numeric (descending)
-    top_5_sorted = top_5_copy.sort_values(
-        by=['is_alert', 'Change_Numeric'], 
-        ascending=[False, False]
-    )
+    if 'momentum_delta' in top_5_copy.columns:
+        # Sort by momentum delta (biggest 2-min gains first)
+        top_5_sorted = top_5_copy.sort_values(
+            by='momentum_delta', 
+            ascending=False
+        )
+    else:
+        # Sort by: 1) Alert status (alerts first), 2) Change_Numeric (descending)
+        top_5_sorted = top_5_copy.sort_values(
+            by=['is_alert', 'Change_Numeric'], 
+            ascending=[False, False]
+        )
     
     display_rank = 1
     for idx, row in top_5_sorted.iterrows():
@@ -301,26 +307,36 @@ def create_report_embed(top_5_df, significant_tickers, title="Top 5 Daily Gainer
         
         # Check if this ticker met the threshold
         is_significant = ticker in significant_tickers
+        ticker_info = significant_tickers.get(ticker, {})
         
         # Create Finviz Elite link for the ticker (chart view)
         finviz_url = f"https://elite.finviz.com/quote.ashx?t={ticker}&p=d"
         
         # Determine icon based on significance
         if is_significant:
-            ticker_info = significant_tickers[ticker]
-            if ticker_info['reason'] == 'THRESHOLD_UP':
+            if ticker_info.get('reason') == 'THRESHOLD_UP':
                 icon = "▲"
-            elif ticker_info['reason'] in ['MANUAL', 'FORCED']:
+            elif ticker_info.get('reason') in ['MANUAL', 'FORCED']:
+                icon = "•"
+            else:
                 icon = "•"
         else:
             icon = "•"
         
         # Consistent format: show current percentage for all tickers
-        # Add + sign for positive percentages
-        if row['Change_Numeric'] > 0:
-            field_name = f"{icon} #{rank} - {ticker} - ${price} (+{change_from_open})"
+        # For momentum alerts, also show the 2-min momentum gain in title
+        if is_significant and ticker_info.get('reason') == 'THRESHOLD_UP':
+            momentum_gain = ticker_info['delta']
+            if row['Change_Numeric'] > 0:
+                field_name = f"{icon} #{rank} - {ticker} - ${price} (+{change_from_open}) [+{momentum_gain:.2f}% momentum]"
+            else:
+                field_name = f"{icon} #{rank} - {ticker} - ${price} ({change_from_open}) [+{momentum_gain:.2f}% momentum]"
         else:
-            field_name = f"{icon} #{rank} - {ticker} - ${price} ({change_from_open})"
+            # Non-momentum or manual triggers
+            if row['Change_Numeric'] > 0:
+                field_name = f"{icon} #{rank} - {ticker} - ${price} (+{change_from_open})"
+            else:
+                field_name = f"{icon} #{rank} - {ticker} - ${price} ({change_from_open})"
         
         # Context section - consistent for all tickers with color coding
         field_value = ""
@@ -330,14 +346,13 @@ def create_report_embed(top_5_df, significant_tickers, title="Top 5 Daily Gainer
         previous_value = None
         
         if is_significant:
-            ticker_info = significant_tickers[ticker]
-            if ticker_info['reason'] == 'THRESHOLD_UP':
+            if ticker_info.get('reason') == 'THRESHOLD_UP':
                 field_value += f"\n**Context:**\n"
                 delta = ticker_info['delta']
                 # Green for increases
                 field_value += f"```ansi\n\u001b[32mIncreased by +{delta:.2f}% from last check\u001b[0m\n```\n"
                 previous_value = f"{ticker_info['previous']:.2f}%"
-            elif ticker_info['reason'] in ['MANUAL', 'FORCED']:
+            elif ticker_info.get('reason') in ['MANUAL', 'FORCED']:
                 field_value += f"\n**Context:**\n"
                 field_value += f"Manual trigger (threshold bypassed)\n\n"
                 if ticker in tracking_data:
@@ -445,39 +460,37 @@ async def send_top_tickers():
                 print(f"[{datetime.now()}] No significant increases (threshold: +{CHANGE_THRESHOLD}%)")
                 return
             
-            # Get top momentum gainers (sorted by current gain)
+            # Get top momentum gainers (sorted by MOMENTUM DELTA - biggest 2-min gains first!)
             sorted_momentum = sorted(
                 significant_tickers.items(),
-                key=lambda x: x[1]['current_gain'],
+                key=lambda x: x[1]['delta'],  # Sort by momentum gain, not daily performance
                 reverse=True
             )
             
-            # Always prioritize showing momentum gainers (they triggered the alert!)
-            top_momentum_symbols = [ticker for ticker, _ in sorted_momentum[:5]]
+            # Show top 5 momentum gainers (or all if < 5)
+            num_to_show = min(5, len(sorted_momentum))
+            top_momentum_symbols = [ticker for ticker, _ in sorted_momentum[:num_to_show]]
             
-            # Build display list: Start with momentum gainers
-            display_symbols = list(top_momentum_symbols)
+            # Get DataFrame for momentum gainers
+            display_df = all_tickers[all_tickers['Ticker'].isin(top_momentum_symbols)].copy()
             
-            # If fewer than 5 momentum gainers, fill with top daily gainers for context
-            if len(display_symbols) < 5:
-                top_5_daily = all_tickers.nlargest(5, 'Change_Numeric')
-                for ticker in top_5_daily['Ticker'].tolist():
-                    if ticker not in display_symbols:
-                        display_symbols.append(ticker)
-                        if len(display_symbols) >= 5:
-                            break
-                embed_title = f"Top {len(top_momentum_symbols)} Momentum Gainer(s) + Context"
-                print(f"Showing {len(top_momentum_symbols)} momentum gainer(s) + {5-len(top_momentum_symbols)} top daily for context ({len(significant_tickers)} total met threshold)")
+            # Sort by momentum delta (highest momentum first)
+            # Add delta for sorting
+            display_df['momentum_delta'] = display_df['Ticker'].map(
+                lambda t: significant_tickers[t]['delta'] if t in significant_tickers else 0
+            )
+            display_df = display_df.sort_values('momentum_delta', ascending=False)
+            
+            # Set title based on count
+            if num_to_show >= 5:
+                embed_title = "Top 5 Momentum Gainers (Last 2 Minutes)"
             else:
-                embed_title = "Top 5 Momentum Gainers - Live Data"
-                print(f"Showing top 5 momentum gainers ({len(significant_tickers)} total met threshold)")
+                embed_title = f"Top {num_to_show} Momentum Gainer(s) (Last 2 Minutes)"
             
-            # Get DataFrame for display tickers
-            display_df = all_tickers[all_tickers['Ticker'].isin(display_symbols)].copy()
-            display_df = display_df.sort_values('Change_Numeric', ascending=False)
+            print(f"Showing top {num_to_show} momentum gainer(s) sorted by 2-min delta ({len(significant_tickers)} total met threshold)")
             
-            # Mark which displayed tickers are momentum gainers
-            display_significant = {k: v for k, v in significant_tickers.items() if k in display_symbols}
+            # Mark which displayed tickers are momentum gainers (all of them in this case)
+            display_significant = {k: v for k, v in significant_tickers.items() if k in top_momentum_symbols}
             
             # Create and send embed
             embed = create_report_embed(display_df, display_significant, title=embed_title)
